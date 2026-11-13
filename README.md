@@ -18,6 +18,7 @@ A private photo and video gallery that streams original media from Google Drive.
 - Resolves capture dates from Drive metadata, photo EXIF, video metadata, and supported WhatsApp filenames.
 - Uses Google OAuth and an administrator-managed Gmail allowlist.
 - Streams media through authenticated endpoints and supports downloads and byte-range requests.
+- Verifies media access against the configured Drive folder hierarchy without rescanning the entire gallery for each media request.
 - Stores viewer access and likes in Cloudflare D1. Administrator likes also appear in shared Favourites.
 - Refreshes the Drive folder tree while the gallery is open and checks for new uploads every five minutes.
 
