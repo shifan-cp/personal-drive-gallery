@@ -156,6 +156,39 @@ async function driveListPage(token, query, pageToken) {
   if (!response.ok) throw new Error(`Drive list failed (${response.status})`);
   return response.json();
 }
+async function driveFileMetadata(token, fileId) {
+  const params = new URLSearchParams({ fields: "id,name,mimeType,parents,trashed,thumbnailLink" });
+  const response = await fetch(
+    `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?${params}`,
+    { headers: { authorization: `Bearer ${token}` } }
+  );
+  if (response.status === 404) return null;
+  if (!response.ok) throw new Error(`Drive metadata lookup failed (${response.status})`);
+  return response.json();
+}
+export async function getMediaFileInGallery(token, folderId, fileId) {
+  if (!folderId) throw new Error("DRIVE_FOLDER_ID is not configured");
+  const file = await driveFileMetadata(token, fileId);
+  if (
+    !file ||
+    file.trashed ||
+    !(file.mimeType?.startsWith("image/") || file.mimeType?.startsWith("video/"))
+  ) return null;
+
+  const folders = [...(file.parents || [])];
+  const seen = new Set([fileId]);
+  while (folders.length && seen.size < 500) {
+    const folderIdToCheck = folders.shift();
+    if (folderIdToCheck === folderId) return file;
+    if (seen.has(folderIdToCheck)) continue;
+    seen.add(folderIdToCheck);
+
+    const folder = await driveFileMetadata(token, folderIdToCheck);
+    if (!folder || folder.trashed || folder.mimeType !== "application/vnd.google-apps.folder") continue;
+    folders.push(...(folder.parents || []));
+  }
+  return null;
+}
 async function listGalleryFiles(env, token) {
   const folderId = env.DRIVE_FOLDER_ID;
   if (!folderId) throw new Error("DRIVE_FOLDER_ID is not configured");
@@ -427,24 +460,18 @@ async function serveMedia(request, env, fileId, thumbnail = false, download = fa
   if (!authenticated) return json({ error: "Unauthorized" }, 401, { "www-authenticate": "Session" });
 
   const token = await getDriveAccessToken(env);
-  // Ensure the requested ID belongs to the configured gallery folder tree.
-  const files = await listGalleryFiles(env, token);
-  const file = files.find(f => f.id === fileId);
+  const file = await getMediaFileInGallery(token, env.DRIVE_FOLDER_ID, fileId);
   if (!file) return json({ error: "Not found" }, 404);
 
   let upstream;
   if (thumbnail) {
-    const metadataUrl = `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?fields=thumbnailLink,mimeType`;
-    const metadataResponse = await fetch(metadataUrl, { headers: { authorization: `Bearer ${token}` } });
-    if (!metadataResponse.ok) return json({ error: "Unable to load thumbnail" }, 502);
-    const metadata = await metadataResponse.json();
-    if (!metadata.thumbnailLink) {
+    if (!file.thumbnailLink) {
       // Fallback to the original file if Google has no thumbnail.
       upstream = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media`, {
         headers: { authorization: `Bearer ${token}` }
       });
     } else {
-      upstream = await fetch(metadata.thumbnailLink, { headers: { authorization: `Bearer ${token}` } });
+      upstream = await fetch(file.thumbnailLink, { headers: { authorization: `Bearer ${token}` } });
     }
   } else {
     const headers = {};

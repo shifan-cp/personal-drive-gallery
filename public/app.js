@@ -568,12 +568,28 @@ function renderLightbox() {
   });
   const onKey = event => {
     if (event.key === "Escape") close();
-    if (event.key === "ArrowLeft") { currentIndex = (currentIndex - 1 + visiblePhotos.length) % visiblePhotos.length; layer.remove(); renderLightbox(); }
-    if (event.key === "ArrowRight") { currentIndex = (currentIndex + 1) % visiblePhotos.length; layer.remove(); renderLightbox(); }
+    if (event.key === "ArrowLeft") {
+      close();
+      currentIndex = (currentIndex - 1 + visiblePhotos.length) % visiblePhotos.length;
+      renderLightbox();
+    }
+    if (event.key === "ArrowRight") {
+      close();
+      currentIndex = (currentIndex + 1) % visiblePhotos.length;
+      renderLightbox();
+    }
   };
   layer.querySelector("#close-lightbox").addEventListener("click", close);
-  layer.querySelector("#prev").addEventListener("click", () => { currentIndex = (currentIndex - 1 + visiblePhotos.length) % visiblePhotos.length; layer.remove(); renderLightbox(); });
-  layer.querySelector("#next").addEventListener("click", () => { currentIndex = (currentIndex + 1) % visiblePhotos.length; layer.remove(); renderLightbox(); });
+  layer.querySelector("#prev").addEventListener("click", () => {
+    close();
+    currentIndex = (currentIndex - 1 + visiblePhotos.length) % visiblePhotos.length;
+    renderLightbox();
+  });
+  layer.querySelector("#next").addEventListener("click", () => {
+    close();
+    currentIndex = (currentIndex + 1) % visiblePhotos.length;
+    renderLightbox();
+  });
   layer.addEventListener("click", event => { if (event.target === layer) close(); });
   document.addEventListener("keydown", onKey);
 }
