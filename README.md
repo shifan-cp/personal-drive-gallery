@@ -1,81 +1,70 @@
 # Personal Drive Gallery
 
-A private, chronological image/video gallery. Original media remains in Google Drive. Visitors sign in with Google using an approved Gmail address; two fixed administrators manage the viewer allowlist.
+A private, date-sorted gallery for photos and videos stored in Google Drive. Visitors sign in with Google; access is limited to verified Gmail accounts approved by an administrator.
 
-## Important design notes
+> **Privacy first:** Keep the Drive folder private. Share it only with the Worker service account, and never commit credentials or `.dev.vars`.
 
-- Google sign-in authenticates viewers. Google Cloud OAuth is separate from the Google service account used by the Worker to read Drive.
-- Only verified `@gmail.com` accounts can sign in. The two administrators are configured in `ADMIN_EMAILS`; they can add or revoke viewer addresses in the gallery's **Manage access** panel.
-- Cloudflare D1 stores the viewer allowlist and media likes keyed by Google's private subject identifier. Approved viewers can see aggregate like counts; only administrator likes add an item to the shared, date-sorted Favourites album. The Worker checks authorization for gallery, media, and thumbnail requests. Thumbnails use a one-hour private browser cache, so a cached copy can remain on that device until it expires.
-- The Drive folder should remain private. Share only the gallery folder with the service account email as Viewer. Do not change General access to “Anyone”.
-- Sessions use a signed, HttpOnly cookie. The old shared username/password login has been removed.
-- The gallery recursively scans the Drive folder tree on refresh and checks for new uploads every five minutes while open. Capture-date handling prefers Drive capture metadata, then reads embedded EXIF dates for photos or MP4 creation dates for videos when needed. It tries standard WhatsApp filename dates before falling back to Drive `createdTime`.
-- Photos and videos are mixed in one newest-first capture-time sequence and displayed under year/month/day headings in India Standard Time. Exact times are shown when metadata provides them; date-only filename fallbacks are marked with unknown time. The app reads bounded byte ranges and caches resolved dates in each browser.
-- This is a functional starter, not a security-audited production release. Protect the Cloudflare account with MFA and test the authorization flow before sharing the site.
+## What it does
 
-## 1. Prerequisites
+| Gallery | Access | Storage |
+| --- | --- | --- |
+| Combines photos and videos in a chronological timeline, grouped by date in India Standard Time. | Google OAuth sign-in, a Gmail allowlist, and administrator-managed access. | Originals stay in Drive; Cloudflare D1 stores approved viewers and likes. |
 
-Install Node.js LTS, then open a terminal in this project directory:
+- Resolves capture dates from Drive metadata, photo EXIF, video metadata, and supported WhatsApp filenames.
+- Streams media through authenticated Worker endpoints; supports downloads and bounded byte-range requests.
+- Lets viewers like media. Administrator likes also add items to the shared Favourites album.
+- Refreshes the Drive folder tree while open and checks for new uploads every five minutes.
 
-```bash
+## Requirements
+
+- Node.js LTS
+- A Cloudflare account with Workers and D1
+- A Google Cloud project with the Google Drive API and an OAuth web client
+
+## Get started
+
+### 1. Install dependencies
+
+From the project directory:
+
+```powershell
 npm.cmd install
 ```
 
-The commands below use the `.cmd` launchers so they work in Windows PowerShell even when script execution is restricted.
+The `.cmd` launchers work in Windows PowerShell even when script execution is restricted.
 
-You will need a Cloudflare account and a Google Cloud project.
+### 2. Configure Google
 
-## 2. Google Drive service account
-
-1. In [Google Cloud Console](https://console.cloud.google.com/), create or select a project.
-2. Enable **Google Drive API**.
-3. Go to **IAM & Admin → Service Accounts** and create a service account, e.g. `gallery-reader`.
-4. Create a JSON key and keep it private.
-5. In Google Drive, share only the gallery folder with the service account's `client_email` as **Viewer**.
-6. Copy the folder ID from the Drive folder URL.
-
-Never share your entire Drive unless you intend to. The service-account key must not be committed to Git or shared in chat.
-
-## 3. Google OAuth web client
-
-1. In the same Google Cloud project, configure the OAuth consent screen. Add the two administrators and intended testers as test users if the app remains in Testing.
-2. Create an OAuth client ID of type **Web application**.
-3. Add these authorized redirect URIs:
-   - Local development: `http://localhost:8787/auth/callback`
+1. Enable the **Google Drive API** in Google Cloud.
+2. Create a service account and a JSON key. Share only the gallery folder with the service account's `client_email` as **Viewer**.
+3. Create an OAuth client with type **Web application**. Add these redirect URIs:
+   - Local: `http://localhost:8787/auth/callback`
    - Production: `https://YOUR-WORKER-DOMAIN/auth/callback`
-4. Save the OAuth **Client ID** and **Client secret** privately.
+4. Keep the OAuth client secret and service-account key private. Replace the production placeholder with your Worker hostname, and keep the OAuth redirect URI in sync if that hostname changes.
 
-If the production Worker hostname changes, update the production redirect URI in Google Cloud and use the exact same host when signing in.
+If the OAuth consent screen is in Testing, add the administrators and intended testers as test users.
 
-## 4. Create the Cloudflare D1 database
+### 3. Set up Cloudflare D1
 
-Log in to Cloudflare. If the database does not already exist, create it:
+Log in and create the database if it does not already exist:
 
-```bash
+```powershell
 npx.cmd wrangler login
 npx.cmd wrangler d1 create personal-drive-gallery-access
 ```
 
-If Wrangler says the database already exists, list databases and use the UUID for `personal-drive-gallery-access`:
+If it already exists, find its ID with `npx.cmd wrangler d1 list`. Set `database_id` in `wrangler.jsonc` to that ID, then apply the migrations:
 
-```bash
-npx.cmd wrangler d1 list
-```
-
-The `database_id` in `wrangler.jsonc` must match that UUID. This checkout is already configured for the existing database.
-
-Apply the schema locally and remotely:
-
-```bash
+```powershell
 npx.cmd wrangler d1 migrations apply personal-drive-gallery-access --local
 npx.cmd wrangler d1 migrations apply personal-drive-gallery-access --remote
 ```
 
-The migrations create the Gmail-only `allowed_viewers` table and the per-user `media_likes` table. Do not add viewer records manually; use the Admin panel.
+The migrations create the viewer allowlist and per-viewer media likes tables.
 
-## 5. Configure local secrets
+### 4. Add local credentials
 
-Create `.dev.vars` in the project root (it is ignored by Git) with the following keys:
+Create `.dev.vars` in the project root. This file is ignored by Git.
 
 ```dotenv
 GOOGLE_CLIENT_ID="your-oauth-client-id"
@@ -86,29 +75,33 @@ DRIVE_FOLDER_ID="your-drive-gallery-folder-id"
 SERVICE_ACCOUNT_JSON='{"type":"service_account","project_id":"...","private_key":"-----BEGIN PRIVATE KEY-----\n...\n","client_email":"gallery-reader@your-project.iam.gserviceaccount.com","token_uri":"https://oauth2.googleapis.com/token"}'
 ```
 
-Use the full service-account JSON on one line. Keep the escaped `\n` sequences in its private key. Do not include extra single quotes around the JSON when pasting it into `.dev.vars` or `wrangler secret put`; the Worker accepts raw JSON and also tolerates a single-quoted copy/paste, but the safest format is the plain JSON object with no outer quotes. Replace the example administrator addresses with your own; do not send any secret values in chat.
+Use the full service-account JSON on one line, keeping the private key's escaped `\n` sequences. Use your own administrator Gmail addresses and Drive folder ID. Do not paste real credentials into source files, Git, or chat.
 
-Generate a session secret locally with:
+Generate a session secret locally:
 
-```bash
+```powershell
 node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"
 ```
 
-## 6. Run and test locally
+### 5. Run locally
 
-```bash
+```powershell
 npm.cmd run dev
 ```
 
-Open the Wrangler URL, usually `http://localhost:8787`. Sign in with one of the configured administrator Gmail accounts. Use **Manage access** to approve another Gmail address, then test sign-in with that account. Also verify that an unapproved account is denied and that removing an approved viewer prevents their next gallery/media request.
+Open the Wrangler URL (usually `http://localhost:8787`) and sign in with an administrator account. Use **Manage access** to approve a viewer, then verify both approved and unapproved sign-in behavior.
 
-Local development uses Wrangler's local D1 database. If you have an older local Wrangler database from before the migration, apply migrations again with the command above.
+Run the test suite with:
 
-## 7. Configure production and deploy
+```powershell
+npm.cmd test
+```
 
-Before deploying, confirm `wrangler.jsonc` contains the real D1 database ID and the remote migration has succeeded. Then set the production secrets (values are entered into the terminal, not chat):
+## Deploy
 
-```bash
+Before deploying, confirm `wrangler.jsonc` has the correct D1 database ID and the remote migrations have succeeded. Set each production secret in the terminal; Wrangler prompts for its value:
+
+```powershell
 npx.cmd wrangler secret put GOOGLE_CLIENT_ID
 npx.cmd wrangler secret put GOOGLE_CLIENT_SECRET
 npx.cmd wrangler secret put ADMIN_EMAILS
@@ -117,35 +110,32 @@ npx.cmd wrangler secret put DRIVE_FOLDER_ID
 npx.cmd wrangler secret put SERVICE_ACCOUNT_JSON
 ```
 
-Set `ADMIN_EMAILS` to:
+Deploy:
 
-```text
-admin-one@gmail.com,admin-two@gmail.com
-```
-
-Deploy after the OAuth client, D1 database, migration, and all secrets are ready:
-
-```bash
+```powershell
 npm.cmd run deploy
 ```
 
-Open the production URL in a private/incognito window and test administrator sign-in, a permitted viewer, a denied Gmail account, sign-out, and media access after revoking a viewer. The Google OAuth consent screen must allow the intended users (as test users while the app is in Testing).
+Test production in a private browser window: administrator sign-in, approved and denied viewers, sign-out, and media access after revoking a viewer. The Google OAuth consent screen must permit the intended users.
 
-The former `LOGIN_USERNAME` and `PASSWORD_HASH` secrets are no longer used. After confirming the new sign-in works, remove the old secrets if they still exist:
+The old `LOGIN_USERNAME` and `PASSWORD_HASH` secrets are no longer used. Once the new sign-in flow is verified, remove them if they remain:
 
-```bash
+```powershell
 npx.cmd wrangler secret delete LOGIN_USERNAME
 npx.cmd wrangler secret delete PASSWORD_HASH
 ```
 
-## 8. Privacy and troubleshooting
+## Privacy and troubleshooting
 
-- Keep the Drive folder private and shared only with the service account.
-- The gallery URL is not a secret; access is controlled by Google sign-in and the allowlist.
-- Anyone with administrator access can grant or revoke viewer access. Only the two addresses in `ADMIN_EMAILS` are administrators.
-- If Google reports `redirect_uri_mismatch`, make sure the callback URL in Google Cloud exactly matches the current local or production hostname and `/auth/callback`.
-- If sign-in says an account is not authorized, an administrator must add that exact Gmail address in **Manage access**.
-- If a viewer-management request reports that D1 is not configured, check the `DB` binding and verify the database ID in `wrangler.jsonc`.
-- If the gallery is empty, check that Drive API is enabled and the exact gallery folder is shared with the service-account email.
-- Original photos and videos remain in Drive; the site streams them through authenticated Worker endpoints and offers downloads.
-- Consider Cloudflare rate limiting/WAF protections and audit access before distributing the link widely.
+- The Drive folder should remain private. Do not change its general access to **Anyone**.
+- The gallery URL is not a secret; access is enforced by Google sign-in and the allowlist. The Worker checks authorization for gallery, media, and thumbnail requests.
+- Sessions use a signed, HttpOnly cookie. Thumbnails use a one-hour private browser cache, so a copy may remain on that device until it expires.
+- Only verified `@gmail.com` accounts can sign in. Administrators manage viewer access in **Manage access**; do not add viewers directly to D1.
+- This is a functional starter, not a security-audited production release. Protect the Cloudflare account with MFA and test authorization before sharing the gallery.
+
+| Problem | Check |
+| --- | --- |
+| `redirect_uri_mismatch` | The OAuth redirect URI exactly matches the local or production hostname and `/auth/callback`. |
+| Account is not authorized | An administrator has added that exact Gmail address in **Manage access**. |
+| Viewer management says D1 is not configured | The `DB` binding and `database_id` in `wrangler.jsonc`, and the remote migrations. |
+| Gallery is empty | The Drive API is enabled and the gallery folder is shared with the service account email. |
