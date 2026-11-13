@@ -1,0 +1,23 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "personal-drive-gallery",
+	"main": "src/worker.js",
+	"compatibility_date": "2026-11-01",
+	"assets": {
+		"directory": "./public",
+		"binding": "ASSETS",
+		"not_found_handling": "single-page-application",
+		"run_worker_first": [
+			"/api/*",
+			"/auth/*"
+		]
+	},
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "personal-drive-gallery-access",
+			"database_id": "8ab800fa-f57b-40d3-8998-fdc60b65f395",
+			"migrations_dir": "migrations"
+		}
+	]
+}
