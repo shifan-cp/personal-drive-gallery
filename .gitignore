@@ -1,5 +1,9 @@
 node_modules/
-.dev.vars
-.env
+.dev.vars*
+.env*
+!.env.example
+*.pem
+*.key
+service-account*.json
 .wrangler/
 .DS_Store
